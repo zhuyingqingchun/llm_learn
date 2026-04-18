@@ -1,0 +1,574 @@
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -5,11 +5,14 @@
+ readme = "README.md"
+ requires-python = ">=3.13"
+ dependencies = [
++    "accelerate>=1.2.1",
++    "bitsandbytes>=0.46.0",
+     "datasets>=4.3.0",
+     "matplotlib>=3.10.7",
+     "modelscope>=1.35.0",
+     "numpy>=2.3.4",
+     "pandas>=2.3.3",
++    "peft>=0.14.0",
+     "pytest>=8.4.2",
+     "scikit-learn>=1.8.0",
+     "scipy>=1.17.1",
+@@ -26,13 +29,14 @@
+ [project.scripts]
+ transformer-train = "src.transformer.train:app"
+ transformer-interactive = "src.transformer.interactive:app"
++qwen-sft = "src.qwen.cli:app"
+ 
+ [build-system]
+ requires = ["hatchling"]
+ build-backend = "hatchling.build"
+ 
+ [tool.hatch.build]
+-packages = ["src/misc", "src/transformer", "src/util", "src/gpt"]
++packages = ["src/misc", "src/transformer", "src/util", "src/gpt", "src/qwen"]
+ 
+ [dependency-groups]
+ dev = [
+--- a/makefile
++++ b/makefile
+@@ -5,7 +5,8 @@
+ 	uv pip install -e .
+ 	bash -c "source $(PWD)/.venv/bin/activate && \
+ 	transformer-train --install-completion && \
+-	transformer-interactive --install-completion"
++	transformer-interactive --install-completion && \
++	qwen-sft --install-completion"
+ 
+ # 默认参数（可通过 make VAR=value 覆盖）
+ PROCESSED_PATH ?= ./data/processed_blocks
+@@ -18,6 +19,7 @@
+ PAD_TOKEN_ID ?= 50256
+ NUM_PROC ?= 8
+ VOCAB_SIZE ?= 30000
++QWEN_CONFIG ?= ./configs/qwen_sft_minimal.json
+ 
+ .PHONY: gpt-offline
+ gpt-offline:
+@@ -37,3 +39,7 @@
+ 		--tokenizer-path $(TOKENIZER_PATH) \
+ 		--batch-size $(BATCH_SIZE) \
+ 		--seq-len $(SEQ_LEN)
++
++.PHONY: qwen-sft-train
++qwen-sft-train:
++	uv run qwen-sft train --config-path $(QWEN_CONFIG)
+--- a/src/qwen/__init__.py
++++ b/src/qwen/__init__.py
+@@ -0,0 +1 @@
++"""Qwen 系列模型的最小 SFT 训练骨架。"""
+--- a/src/qwen/config.py
++++ b/src/qwen/config.py
+@@ -0,0 +1,96 @@
++from __future__ import annotations
++
++from dataclasses import asdict, dataclass, field, fields
++from pathlib import Path
++import json
++from typing import Any
++
++
++@dataclass
++class QwenModelConfig:
++    model_name_or_path: str = "Qwen/Qwen2.5-1.5B-Instruct"
++    trust_remote_code: bool = True
++    use_lora: bool = True
++    load_in_4bit: bool = False
++    lora_r: int = 16
++    lora_alpha: int = 32
++    lora_dropout: float = 0.05
++    target_modules: list[str] = field(
++        default_factory=lambda: [
++            "q_proj",
++            "k_proj",
++            "v_proj",
++            "o_proj",
++            "gate_proj",
++            "up_proj",
++            "down_proj",
++        ]
++    )
++
++
++@dataclass
++class QwenDataConfig:
++    train_file: str = "./data/qwen/train.jsonl"
++    validation_file: str | None = "./data/qwen/val.jsonl"
++    validation_split_ratio: float = 0.02
++    max_length: int = 2048
++    preprocessing_num_workers: int = 1
++    system_prompt: str = "You are a helpful assistant."
++    train_on_prompt: bool = False
++
++
++@dataclass
++class QwenTrainConfig:
++    output_dir: str = "./qwen_checkpoints/qwen2_5_1_5b_sft"
++    num_train_epochs: int = 1
++    learning_rate: float = 2e-4
++    weight_decay: float = 0.0
++    warmup_ratio: float = 0.03
++    per_device_train_batch_size: int = 1
++    per_device_eval_batch_size: int = 1
++    gradient_accumulation_steps: int = 8
++    logging_steps: int = 10
++    save_steps: int = 200
++    eval_steps: int = 200
++    save_total_limit: int = 2
++    bf16: bool = True
++    fp16: bool = False
++    gradient_checkpointing: bool = True
++    seed: int = 42
++    report_to: list[str] = field(default_factory=lambda: ["tensorboard"])
++
++
++@dataclass
++class QwenSFTConfig:
++    model: QwenModelConfig = field(default_factory=QwenModelConfig)
++    data: QwenDataConfig = field(default_factory=QwenDataConfig)
++    train: QwenTrainConfig = field(default_factory=QwenTrainConfig)
++
++    def to_dict(self) -> dict[str, Any]:
++        return asdict(self)
++
++
++def _build_dataclass(cls: type, payload: dict[str, Any]):
++    allowed = {f.name for f in fields(cls)}
++    filtered = {k: v for k, v in payload.items() if k in allowed}
++    return cls(**filtered)
++
++
++def load_qwen_sft_config(config_path: str | Path) -> QwenSFTConfig:
++    path = Path(config_path)
++    with path.open("r", encoding="utf-8") as f:
++        payload = json.load(f)
++
++    model_cfg = _build_dataclass(QwenModelConfig, payload.get("model", {}))
++    data_cfg = _build_dataclass(QwenDataConfig, payload.get("data", {}))
++    train_cfg = _build_dataclass(QwenTrainConfig, payload.get("train", {}))
++    return QwenSFTConfig(model=model_cfg, data=data_cfg, train=train_cfg)
++
++
++def save_resolved_config(config: QwenSFTConfig, output_dir: str | Path) -> Path:
++    output_path = Path(output_dir)
++    output_path.mkdir(parents=True, exist_ok=True)
++    config_path = output_path / "resolved_qwen_sft_config.json"
++    with config_path.open("w", encoding="utf-8") as f:
++        json.dump(config.to_dict(), f, ensure_ascii=False, indent=2)
++    return config_path
+--- a/src/qwen/data.py
++++ b/src/qwen/data.py
+@@ -0,0 +1,154 @@
++from __future__ import annotations
++
++from pathlib import Path
++
++from datasets import DatasetDict, load_dataset
++from transformers import PreTrainedTokenizerBase
++
++from .config import QwenDataConfig
++
++
++def _normalize_messages(sample: dict, data_config: QwenDataConfig) -> list[dict[str, str]]:
++    if "messages" in sample and sample["messages"]:
++        messages = sample["messages"]
++    elif "conversations" in sample and sample["conversations"]:
++        messages = []
++        for item in sample["conversations"]:
++            role = item.get("role") or item.get("from")
++            content = item.get("content") or item.get("value")
++            if role in {"human", "user"}:
++                role = "user"
++            elif role in {"gpt", "assistant"}:
++                role = "assistant"
++            elif role == "system":
++                role = "system"
++            else:
++                raise ValueError(f"无法识别的 role: {role}")
++            messages.append({"role": role, "content": content})
++    elif "instruction" in sample and "output" in sample:
++        user_prompt = sample["instruction"]
++        if sample.get("input"):
++            user_prompt = f"{user_prompt}\n\n{sample['input']}"
++        messages = [
++            {"role": "user", "content": user_prompt},
++            {"role": "assistant", "content": sample["output"]},
++        ]
++    elif "prompt" in sample and "response" in sample:
++        messages = [
++            {"role": "user", "content": sample["prompt"]},
++            {"role": "assistant", "content": sample["response"]},
++        ]
++    else:
++        raise ValueError(
++            "样本格式不支持。请提供 messages / conversations / instruction-output / prompt-response 之一。"
++        )
++
++    if not messages or messages[-1]["role"] != "assistant":
++        raise ValueError("SFT 样本的最后一条消息必须是 assistant。")
++
++    has_system = any(message["role"] == "system" for message in messages)
++    if data_config.system_prompt and not has_system:
++        messages = [{"role": "system", "content": data_config.system_prompt}] + messages
++
++    return messages
++
++
++def _tokenize_sample(
++    sample: dict,
++    tokenizer: PreTrainedTokenizerBase,
++    data_config: QwenDataConfig,
++) -> dict:
++    messages = _normalize_messages(sample, data_config)
++    prompt_messages = messages[:-1]
++
++    prompt_text = tokenizer.apply_chat_template(
++        prompt_messages,
++        tokenize=False,
++        add_generation_prompt=True,
++    )
++    full_text = tokenizer.apply_chat_template(
++        messages,
++        tokenize=False,
++        add_generation_prompt=False,
++    )
++
++    prompt_tokens = tokenizer(
++        prompt_text,
++        add_special_tokens=False,
++        truncation=True,
++        max_length=data_config.max_length,
++    )
++    full_tokens = tokenizer(
++        full_text,
++        add_special_tokens=False,
++        truncation=True,
++        max_length=data_config.max_length,
++    )
++
++    input_ids = full_tokens["input_ids"]
++    attention_mask = full_tokens["attention_mask"]
++    labels = input_ids.copy()
++
++    if not data_config.train_on_prompt:
++        prompt_len = min(len(prompt_tokens["input_ids"]), len(labels))
++        for idx in range(prompt_len):
++            labels[idx] = -100
++
++    supervised_tokens = sum(label != -100 for label in labels)
++    return {
++        "input_ids": input_ids,
++        "attention_mask": attention_mask,
++        "labels": labels,
++        "supervised_tokens": supervised_tokens,
++    }
++
++
++def _load_raw_datasets(data_config: QwenDataConfig) -> DatasetDict:
++    train_path = Path(data_config.train_file)
++    if not train_path.exists():
++        raise FileNotFoundError(f"训练数据不存在: {train_path}")
++
++    data_files = {"train": str(train_path)}
++    if data_config.validation_file:
++        val_path = Path(data_config.validation_file)
++        if not val_path.exists():
++            raise FileNotFoundError(f"验证数据不存在: {val_path}")
++        data_files["validation"] = str(val_path)
++
++    raw_datasets = load_dataset("json", data_files=data_files)
++
++    if "validation" not in raw_datasets:
++        split = raw_datasets["train"].train_test_split(
++            test_size=data_config.validation_split_ratio,
++            seed=42,
++        )
++        raw_datasets = DatasetDict(
++            {
++                "train": split["train"],
++                "validation": split["test"],
++            }
++        )
++
++    return raw_datasets
++
++
++def load_qwen_sft_datasets(
++    data_config: QwenDataConfig,
++    tokenizer: PreTrainedTokenizerBase,
++) -> DatasetDict:
++    raw_datasets = _load_raw_datasets(data_config)
++    remove_columns = raw_datasets["train"].column_names
++
++    tokenized = raw_datasets.map(
++        lambda sample: _tokenize_sample(sample, tokenizer, data_config),
++        remove_columns=remove_columns,
++        num_proc=data_config.preprocessing_num_workers,
++        desc="Tokenizing Qwen SFT dataset",
++    )
++
++    tokenized = tokenized.filter(
++        lambda sample: sample["supervised_tokens"] > 0,
++        desc="Filtering empty-supervision samples",
++    )
++    tokenized = tokenized.remove_columns(["supervised_tokens"])
++    return tokenized
+--- a/src/qwen/cli.py
++++ b/src/qwen/cli.py
+@@ -0,0 +1,158 @@
++from __future__ import annotations
++
++from pathlib import Path
++import json
++
++import torch
++import typer
++from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
++from transformers import (
++    AutoModelForCausalLM,
++    AutoTokenizer,
++    BitsAndBytesConfig,
++    DataCollatorForSeq2Seq,
++    Trainer,
++    TrainingArguments,
++    set_seed,
++)
++
++from qwen.config import QwenSFTConfig, load_qwen_sft_config, save_resolved_config
++from qwen.data import load_qwen_sft_datasets
++
++
++app = typer.Typer(help="Qwen 最小 SFT 训练入口")
++
++
++def _build_quantization_config(config: QwenSFTConfig):
++    if not config.model.load_in_4bit:
++        return None
++    compute_dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
++    return BitsAndBytesConfig(
++        load_in_4bit=True,
++        bnb_4bit_quant_type="nf4",
++        bnb_4bit_use_double_quant=True,
++        bnb_4bit_compute_dtype=compute_dtype,
++    )
++
++
++def _build_model_and_tokenizer(config: QwenSFTConfig):
++    tokenizer = AutoTokenizer.from_pretrained(
++        config.model.model_name_or_path,
++        trust_remote_code=config.model.trust_remote_code,
++        use_fast=False,
++    )
++    if tokenizer.pad_token is None:
++        tokenizer.pad_token = tokenizer.eos_token
++    tokenizer.padding_side = "right"
++
++    quantization_config = _build_quantization_config(config)
++    model = AutoModelForCausalLM.from_pretrained(
++        config.model.model_name_or_path,
++        trust_remote_code=config.model.trust_remote_code,
++        quantization_config=quantization_config,
++        torch_dtype=torch.bfloat16 if config.train.bf16 else None,
++    )
++
++    if config.train.gradient_checkpointing:
++        model.gradient_checkpointing_enable()
++
++    if config.model.use_lora:
++        if config.model.load_in_4bit:
++            model = prepare_model_for_kbit_training(model)
++
++        peft_config = LoraConfig(
++            r=config.model.lora_r,
++            lora_alpha=config.model.lora_alpha,
++            lora_dropout=config.model.lora_dropout,
++            target_modules=config.model.target_modules,
++            bias="none",
++            task_type="CAUSAL_LM",
++        )
++        model = get_peft_model(model, peft_config)
++        model.print_trainable_parameters()
++
++    return model, tokenizer
++
++
++def _build_training_args(config: QwenSFTConfig, has_eval: bool) -> TrainingArguments:
++    evaluation_strategy = "steps" if has_eval else "no"
++    report_to = config.train.report_to if config.train.report_to else []
++
++    return TrainingArguments(
++        output_dir=config.train.output_dir,
++        num_train_epochs=config.train.num_train_epochs,
++        learning_rate=config.train.learning_rate,
++        weight_decay=config.train.weight_decay,
++        warmup_ratio=config.train.warmup_ratio,
++        per_device_train_batch_size=config.train.per_device_train_batch_size,
++        per_device_eval_batch_size=config.train.per_device_eval_batch_size,
++        gradient_accumulation_steps=config.train.gradient_accumulation_steps,
++        logging_steps=config.train.logging_steps,
++        save_steps=config.train.save_steps,
++        eval_steps=config.train.eval_steps,
++        save_total_limit=config.train.save_total_limit,
++        bf16=config.train.bf16,
++        fp16=config.train.fp16,
++        remove_unused_columns=False,
++        gradient_checkpointing=config.train.gradient_checkpointing,
++        evaluation_strategy=evaluation_strategy,
++        save_strategy="steps",
++        logging_strategy="steps",
++        report_to=report_to,
++        ddp_find_unused_parameters=False,
++        seed=config.train.seed,
++    )
++
++
++@app.command()
++def train(
++    config_path: str = typer.Option(
++        "./configs/qwen_sft_minimal.json",
++        help="Qwen SFT 配置文件路径",
++    )
++):
++    config = load_qwen_sft_config(config_path)
++    set_seed(config.train.seed)
++
++    model, tokenizer = _build_model_and_tokenizer(config)
++    datasets = load_qwen_sft_datasets(config.data, tokenizer)
++
++    training_args = _build_training_args(
++        config,
++        has_eval="validation" in datasets and len(datasets["validation"]) > 0,
++    )
++    save_resolved_config(config, training_args.output_dir)
++
++    data_collator = DataCollatorForSeq2Seq(
++        tokenizer=tokenizer,
++        padding=True,
++        label_pad_token_id=-100,
++        return_tensors="pt",
++    )
++
++    trainer = Trainer(
++        model=model,
++        args=training_args,
++        train_dataset=datasets["train"],
++        eval_dataset=datasets.get("validation"),
++        tokenizer=tokenizer,
++        data_collator=data_collator,
++    )
++
++    trainer.train()
++    trainer.save_model(training_args.output_dir)
++    tokenizer.save_pretrained(training_args.output_dir)
++
++    summary = {
++        "train_size": len(datasets["train"]),
++        "validation_size": len(datasets.get("validation", [])),
++        "output_dir": training_args.output_dir,
++        "model_name_or_path": config.model.model_name_or_path,
++    }
++    summary_path = Path(training_args.output_dir) / "run_summary.json"
++    summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
++    print(json.dumps(summary, ensure_ascii=False, indent=2))
++
++
++if __name__ == "__main__":
++    app()
+--- a/src/qwen/README.md
++++ b/src/qwen/README.md
+@@ -0,0 +1,36 @@
++# Qwen 最小 SFT 骨架
++
++这个目录提供了一个最小可运行的 Qwen SFT 训练入口，目标是先把 **数据格式 -> LoRA/QLoRA 微调 -> checkpoint 输出** 这条链打通。
++
++## 当前支持的数据格式
++
++### 1. messages 格式
++```json
++{"messages":[
++  {"role":"system","content":"You are a helpful assistant."},
++  {"role":"user","content":"介绍一下你自己"},
++  {"role":"assistant","content":"我是一个用于训练实验的 Qwen 模型。"}
++]}
++```
++
++### 2. instruction / input / output 格式
++```json
++{"instruction":"解释 Transformer 是什么","input":"","output":"Transformer 是一种基于注意力机制的序列建模架构。"}
++```
++
++### 3. prompt / response 格式
++```json
++{"prompt":"给我一句鼓励的话","response":"继续推进，你已经离可复用训练链路很近了。"}
++```
++
++## 最小运行方式
++
++```bash
++make qwen-sft-train
++```
++
++或者：
++
++```bash
++uv run qwen-sft train --config-path ./configs/qwen_sft_minimal.json
++```
+--- a/configs/qwen_sft_minimal.json
++++ b/configs/qwen_sft_minimal.json
+@@ -0,0 +1,50 @@
++{
++  "model": {
++    "model_name_or_path": "Qwen/Qwen2.5-1.5B-Instruct",
++    "trust_remote_code": true,
++    "use_lora": true,
++    "load_in_4bit": false,
++    "lora_r": 16,
++    "lora_alpha": 32,
++    "lora_dropout": 0.05,
++    "target_modules": [
++      "q_proj",
++      "k_proj",
++      "v_proj",
++      "o_proj",
++      "gate_proj",
++      "up_proj",
++      "down_proj"
++    ]
++  },
++  "data": {
++    "train_file": "./data/qwen/train.jsonl",
++    "validation_file": "./data/qwen/val.jsonl",
++    "validation_split_ratio": 0.02,
++    "max_length": 2048,
++    "preprocessing_num_workers": 1,
++    "system_prompt": "You are a helpful assistant.",
++    "train_on_prompt": false
++  },
++  "train": {
++    "output_dir": "./qwen_checkpoints/qwen2_5_1_5b_sft",
++    "num_train_epochs": 1,
++    "learning_rate": 0.0002,
++    "weight_decay": 0.0,
++    "warmup_ratio": 0.03,
++    "per_device_train_batch_size": 1,
++    "per_device_eval_batch_size": 1,
++    "gradient_accumulation_steps": 8,
++    "logging_steps": 10,
++    "save_steps": 200,
++    "eval_steps": 200,
++    "save_total_limit": 2,
++    "bf16": true,
++    "fp16": false,
++    "gradient_checkpointing": true,
++    "seed": 42,
++    "report_to": [
++      "tensorboard"
++    ]
++  }
++}
