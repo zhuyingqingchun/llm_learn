@@ -44,6 +44,15 @@ events.out.tfevents.*
 *.safetensors
 checkpoints/
 output/
+qwen_checkpoints/
+*/resolved_qwen_sft_config.json
+*/run_summary.json
+*/trainer_state.json
+adapter_model.safetensors
+adapter_config.json
+
+# Qwen SFT intermediate data
+data/qwen/
 
 # Hugging Face / ModelScope cache
 .cache/

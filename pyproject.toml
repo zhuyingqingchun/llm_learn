@@ -1,0 +1,40 @@
+[project]
+name = "llm-learn"
+version = "0.1.0"
+description = "LLM learning and experimentation project"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "accelerate>=1.2.1",
+    "bitsandbytes>=0.46.0",
+    "datasets>=4.3.0",
+    "matplotlib>=3.10.7",
+    "modelscope>=1.35.0",
+    "numpy>=2.3.4",
+    "pandas>=2.3.3",
+    "peft>=0.14.0",
+    "pytest>=8.4.2",
+    "scikit-learn>=1.8.0",
+    "scipy>=1.17.1",
+    "torch>=2.10.0",
+    "transformers>=4.47.0",
+    "typer>=0.15.0",
+]
+
+[project.scripts]
+transformer-train = "src.transformer.train:app"
+transformer-interactive = "src.transformer.interactive:app"
+qwen-sft = "src.qwen.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build]
+packages = ["src/misc", "src/transformer", "src/util", "src/gpt", "src/qwen"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14.0",
+    "pytest>=8.4.2",
+]
