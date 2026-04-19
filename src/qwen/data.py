@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from datasets import DatasetDict, load_dataset
+from datasets import Dataset, DatasetDict, load_dataset
 from transformers import PreTrainedTokenizerBase
 
 from .config import QwenDataConfig
 
 
-def _normalize_messages(sample: dict, data_config: QwenDataConfig) -> list[dict[str, str]]:
+def _normalize_training_messages(sample: dict, data_config: QwenDataConfig) -> list[dict[str, str]]:
     if "messages" in sample and sample["messages"]:
         messages = sample["messages"]
     elif "conversations" in sample and sample["conversations"]:
@@ -53,12 +53,12 @@ def _normalize_messages(sample: dict, data_config: QwenDataConfig) -> list[dict[
     return messages
 
 
-def _tokenize_sample(
+def _tokenize_training_sample(
     sample: dict,
     tokenizer: PreTrainedTokenizerBase,
     data_config: QwenDataConfig,
 ) -> dict:
-    messages = _normalize_messages(sample, data_config)
+    messages = _normalize_training_messages(sample, data_config)
     prompt_messages = messages[:-1]
 
     prompt_text = tokenizer.apply_chat_template(
@@ -122,12 +122,7 @@ def _load_raw_datasets(data_config: QwenDataConfig) -> DatasetDict:
             test_size=data_config.validation_split_ratio,
             seed=42,
         )
-        raw_datasets = DatasetDict(
-            {
-                "train": split["train"],
-                "validation": split["test"],
-            }
-        )
+        raw_datasets = DatasetDict({"train": split["train"], "validation": split["test"]})
 
     return raw_datasets
 
@@ -140,7 +135,7 @@ def load_qwen_sft_datasets(
     remove_columns = raw_datasets["train"].column_names
 
     tokenized = raw_datasets.map(
-        lambda sample: _tokenize_sample(sample, tokenizer, data_config),
+        lambda sample: _tokenize_training_sample(sample, tokenizer, data_config),
         remove_columns=remove_columns,
         num_proc=data_config.preprocessing_num_workers,
         desc="Tokenizing Qwen SFT dataset",
@@ -152,3 +147,48 @@ def load_qwen_sft_datasets(
     )
     tokenized = tokenized.remove_columns(["supervised_tokens"])
     return tokenized
+
+
+def _normalize_eval_sample(sample: dict, system_prompt: str) -> dict:
+    sample_id = sample.get("id") or sample.get("sample_id") or "unknown"
+    reference = sample.get("reference") or sample.get("answer") or sample.get("expected")
+
+    if "messages" in sample and sample["messages"]:
+        messages = sample["messages"]
+        if messages[-1].get("role") == "assistant":
+            reference = reference or messages[-1].get("content")
+            messages = messages[:-1]
+    elif "instruction" in sample:
+        user_prompt = sample["instruction"]
+        if sample.get("input"):
+            user_prompt = f"{user_prompt}\n\n{sample['input']}"
+        messages = [{"role": "user", "content": user_prompt}]
+        reference = reference or sample.get("output")
+    elif "prompt" in sample:
+        messages = [{"role": "user", "content": sample["prompt"]}]
+        reference = reference or sample.get("response")
+    else:
+        raise ValueError("评测样本格式不支持，请提供 messages / instruction / prompt。")
+
+    has_system = any(message["role"] == "system" for message in messages)
+    if system_prompt and not has_system:
+        messages = [{"role": "system", "content": system_prompt}] + messages
+
+    return {
+        "id": str(sample_id),
+        "messages": messages,
+        "reference": reference,
+    }
+
+
+def load_qwen_eval_dataset(eval_file: str, system_prompt: str) -> Dataset:
+    eval_path = Path(eval_file)
+    if not eval_path.exists():
+        raise FileNotFoundError(f"评测数据不存在: {eval_path}")
+
+    dataset = load_dataset("json", data_files={"eval": str(eval_path)})["eval"]
+    normalized = [
+        _normalize_eval_sample(sample, system_prompt=system_prompt)
+        for sample in dataset
+    ]
+    return Dataset.from_list(normalized)

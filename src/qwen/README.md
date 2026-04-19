@@ -1,6 +1,6 @@
-# Qwen 最小 SFT 骨架
+# Qwen 最小 SFT / Eval 骨架
 
-这个目录提供了一个最小可运行的 Qwen SFT 训练入口，目标是先把 **数据格式 -> LoRA/QLoRA 微调 -> checkpoint 输出** 这条链打通。
+这个目录提供了一个最小可运行的 Qwen SFT 训练和评测入口，目标是先把 **数据格式 -> LoRA/QLoRA 微调 -> checkpoint 输出 -> 模型评测** 这条链打通。
 
 ## 当前支持的数据格式
 
@@ -25,6 +25,8 @@
 
 ## 最小运行方式
 
+### 训练
+
 ```bash
 make qwen-sft-train
 ```
@@ -32,5 +34,30 @@ make qwen-sft-train
 或者：
 
 ```bash
-uv run qwen-sft train --config-path ./configs/qwen_sft_minimal.json
+uv run qwen-sft train --config-path ./configs/qwen_sft_1_5b.json
 ```
+
+### 评测
+
+```bash
+make qwen-sft-eval
+```
+
+或者：
+
+```bash
+uv run qwen-sft evaluate --config-path ./configs/qwen_eval_1_5b.json
+```
+
+## 配置文件说明
+
+| 配置文件 | 用途 |
+|---------|------|
+| `configs/qwen_sft_1_5b.json` | 1.5B 模型 SFT 训练配置 |
+| `configs/qwen_eval_1_5b.json` | 1.5B 模型评测配置 |
+| `configs/qwen_sft_7b.json` | 7B 模型 SFT 训练配置（4bit 量化） |
+| `configs/qwen_eval_7b.json` | 7B 模型评测配置（4bit 量化） |
+
+## 示例数据
+
+`data/qwen/examples/` 目录下提供了训练和评测的示例数据模板。

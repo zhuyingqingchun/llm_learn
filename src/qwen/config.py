@@ -70,6 +70,27 @@ class QwenSFTConfig:
         return asdict(self)
 
 
+@dataclass
+class QwenEvalConfig:
+    model_name_or_path: str = "Qwen/Qwen2.5-1.5B-Instruct"
+    adapter_path: str | None = None
+    eval_file: str = "./data/qwen/eval.jsonl"
+    output_dir: str = "./qwen_eval_outputs/qwen2_5_1_5b"
+    max_length: int = 2048
+    max_new_tokens: int = 256
+    temperature: float = 0.0
+    top_p: float = 1.0
+    do_sample: bool = False
+    batch_size: int = 1
+    load_in_4bit: bool = False
+    trust_remote_code: bool = True
+    system_prompt: str = "You are a helpful assistant."
+    save_predictions_name: str = "predictions.jsonl"
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
 def _build_dataclass(cls: type, payload: dict[str, Any]):
     allowed = {f.name for f in fields(cls)}
     filtered = {k: v for k, v in payload.items() if k in allowed}
@@ -87,10 +108,17 @@ def load_qwen_sft_config(config_path: str | Path) -> QwenSFTConfig:
     return QwenSFTConfig(model=model_cfg, data=data_cfg, train=train_cfg)
 
 
-def save_resolved_config(config: QwenSFTConfig, output_dir: str | Path) -> Path:
+def load_qwen_eval_config(config_path: str | Path) -> QwenEvalConfig:
+    path = Path(config_path)
+    with path.open("r", encoding="utf-8") as f:
+        payload = json.load(f)
+    return _build_dataclass(QwenEvalConfig, payload)
+
+
+def save_resolved_config(config: QwenSFTConfig | QwenEvalConfig, output_dir: str | Path, filename: str = "resolved_qwen_sft_config.json") -> Path:
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
-    config_path = output_path / "resolved_qwen_sft_config.json"
+    config_path = output_path / filename
     with config_path.open("w", encoding="utf-8") as f:
         json.dump(config.to_dict(), f, ensure_ascii=False, indent=2)
     return config_path

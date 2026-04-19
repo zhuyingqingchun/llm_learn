@@ -16,11 +16,18 @@ from transformers import (
     set_seed,
 )
 
-from qwen.config import QwenSFTConfig, load_qwen_sft_config, save_resolved_config
-from qwen.data import load_qwen_sft_datasets
+from .config import (
+    QwenEvalConfig,
+    QwenSFTConfig,
+    load_qwen_eval_config,
+    load_qwen_sft_config,
+    save_resolved_config,
+)
+from .data import load_qwen_sft_datasets
+from .eval import run_qwen_evaluation
 
 
-app = typer.Typer(help="Qwen 最小 SFT 训练入口")
+app = typer.Typer(help="Qwen 最小 SFT / Eval 入口")
 
 
 def _build_quantization_config(config: QwenSFTConfig):
@@ -50,7 +57,7 @@ def _build_model_and_tokenizer(config: QwenSFTConfig):
         config.model.model_name_or_path,
         trust_remote_code=config.model.trust_remote_code,
         quantization_config=quantization_config,
-        torch_dtype=torch.bfloat16 if config.train.bf16 else None,
+        torch_dtype=torch.bfloat16 if config.train.bf16 and torch.cuda.is_available() else None,
     )
 
     if config.train.gradient_checkpointing:
@@ -107,7 +114,7 @@ def _build_training_args(config: QwenSFTConfig, has_eval: bool) -> TrainingArgum
 @app.command()
 def train(
     config_path: str = typer.Option(
-        "./configs/qwen_sft_minimal.json",
+        "./configs/qwen_sft_1_5b.json",
         help="Qwen SFT 配置文件路径",
     )
 ):
@@ -121,7 +128,7 @@ def train(
         config,
         has_eval="validation" in datasets and len(datasets["validation"]) > 0,
     )
-    save_resolved_config(config, training_args.output_dir)
+    save_resolved_config(config, training_args.output_dir, "resolved_qwen_sft_config.json")
 
     data_collator = DataCollatorForSeq2Seq(
         tokenizer=tokenizer,
@@ -152,6 +159,18 @@ def train(
     summary_path = Path(training_args.output_dir) / "run_summary.json"
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False, indent=2))
+
+
+@app.command()
+def evaluate(
+    config_path: str = typer.Option(
+        "./configs/qwen_eval_1_5b.json",
+        help="Qwen Eval 配置文件路径",
+    )
+):
+    config = load_qwen_eval_config(config_path)
+    metrics = run_qwen_evaluation(config)
+    print(json.dumps(metrics, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

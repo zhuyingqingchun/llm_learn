@@ -1,0 +1,16 @@
+{
+  "model_name_or_path": "Qwen/Qwen2.5-7B-Instruct",
+  "adapter_path": null,
+  "eval_file": "./data/qwen/eval.jsonl",
+  "output_dir": "./qwen_eval_outputs/qwen2_5_7b",
+  "max_length": 4096,
+  "max_new_tokens": 512,
+  "temperature": 0.0,
+  "top_p": 1.0,
+  "do_sample": false,
+  "batch_size": 1,
+  "load_in_4bit": true,
+  "trust_remote_code": true,
+  "system_prompt": "You are a helpful assistant.",
+  "save_predictions_name": "predictions.jsonl"
+}

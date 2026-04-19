@@ -5,7 +5,8 @@ BATCH_SIZE ?= 4
 SEQ_LEN ?= 1024
 TOKENIZER_PATH ?= gpt2
 
-QWEN_CONFIG ?= ./configs/qwen_sft_minimal.json
+QWEN_SFT_CONFIG ?= ./configs/qwen_sft_1_5b.json
+QWEN_EVAL_CONFIG ?= ./configs/qwen_eval_1_5b.json
 
 .PHONY: install
 install:
@@ -26,4 +27,8 @@ gpt-offline:
 
 .PHONY: qwen-sft-train
 qwen-sft-train:
-	uv run qwen-sft train --config-path $(QWEN_CONFIG)
+	uv run qwen-sft train --config-path $(QWEN_SFT_CONFIG)
+
+.PHONY: qwen-sft-eval
+qwen-sft-eval:
+	uv run qwen-sft evaluate --config-path $(QWEN_EVAL_CONFIG)
