@@ -4,35 +4,15 @@ from pathlib import Path
 import json
 
 import torch
-import typer
-from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
-from transformers import (
-    AutoModelForCausalLM,
-    AutoTokenizer,
-    BitsAndBytesConfig,
-    DataCollatorForSeq2Seq,
-    Trainer,
-    TrainingArguments,
-    set_seed,
-)
+from peft import LoraConfig, PeftModel, prepare_model_for_kbit_training
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, set_seed
+from trl import DPOConfig, DPOTrainer
 
-from .config import (
-    QwenEvalConfig,
-    QwenSFTConfig,
-    load_qwen_dpo_config,
-    load_qwen_eval_config,
-    load_qwen_sft_config,
-    save_resolved_config,
-)
-from .data import load_qwen_sft_datasets
-from .dpo import run_qwen_dpo_training
-from .eval import run_qwen_evaluation
+from .config import QwenDPOConfig, save_resolved_config
+from .data import load_qwen_dpo_datasets
 
 
-app = typer.Typer(help="Qwen 最小 SFT / Eval / DPO 入口")
-
-
-def _build_quantization_config(config: QwenSFTConfig):
+def _build_quantization_config(config: QwenDPOConfig):
     if not config.model.load_in_4bit:
         return None
     compute_dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
@@ -44,7 +24,7 @@ def _build_quantization_config(config: QwenSFTConfig):
     )
 
 
-def _build_model_and_tokenizer(config: QwenSFTConfig):
+def _build_model_tokenizer_and_peft(config: QwenDPOConfig):
     tokenizer = AutoTokenizer.from_pretrained(
         config.model.model_name_or_path,
         trust_remote_code=config.model.trust_remote_code,
@@ -65,6 +45,9 @@ def _build_model_and_tokenizer(config: QwenSFTConfig):
     if config.train.gradient_checkpointing:
         model.gradient_checkpointing_enable()
 
+    if config.model.source_adapter_path:
+        model = PeftModel.from_pretrained(model, config.model.source_adapter_path)
+
     if config.model.use_lora:
         if config.model.load_in_4bit:
             model = prepare_model_for_kbit_training(model)
@@ -77,18 +60,21 @@ def _build_model_and_tokenizer(config: QwenSFTConfig):
             bias="none",
             task_type="CAUSAL_LM",
         )
-        model = get_peft_model(model, peft_config)
-        model.print_trainable_parameters()
 
-    return model, tokenizer
+    return model, tokenizer, peft_config
 
 
-def _build_training_args(config: QwenSFTConfig, has_eval: bool) -> TrainingArguments:
-    eval_strategy = "steps" if has_eval else "no"
+def run_qwen_dpo_training(config: QwenDPOConfig) -> dict:
+    set_seed(config.train.seed)
+
+    model, tokenizer, peft_config = _build_model_tokenizer_and_peft(config)
+    datasets = load_qwen_dpo_datasets(config.data, tokenizer)
+    has_eval = "validation" in datasets and len(datasets["validation"]) > 0
+
     report_to = config.train.report_to if config.train.report_to else []
-
-    return TrainingArguments(
+    training_args = DPOConfig(
         output_dir=config.train.output_dir,
+        beta=config.train.beta,
         num_train_epochs=config.train.num_train_epochs,
         learning_rate=config.train.learning_rate,
         weight_decay=config.train.weight_decay,
@@ -102,52 +88,29 @@ def _build_training_args(config: QwenSFTConfig, has_eval: bool) -> TrainingArgum
         save_total_limit=config.train.save_total_limit,
         bf16=config.train.bf16,
         fp16=config.train.fp16,
-        remove_unused_columns=False,
         gradient_checkpointing=config.train.gradient_checkpointing,
-        eval_strategy=eval_strategy,
+        seed=config.train.seed,
+        report_to=report_to,
         save_strategy="steps",
         logging_strategy="steps",
-        report_to=report_to,
-        ddp_find_unused_parameters=False,
-        seed=config.train.seed,
+        eval_strategy="steps" if has_eval else "no",
+        remove_unused_columns=False,
+        max_prompt_length=config.data.max_prompt_length,
+        max_completion_length=config.data.max_completion_length,
+        dataset_num_proc=config.data.preprocessing_num_workers,
     )
 
+    save_resolved_config(config, training_args.output_dir, "resolved_qwen_dpo_config.json")
 
-@app.command()
-def train(
-    config_path: str = typer.Option(
-        "./configs/qwen_sft_1_5b.json",
-        help="Qwen SFT 配置文件路径",
-    )
-):
-    config = load_qwen_sft_config(config_path)
-    set_seed(config.train.seed)
-
-    model, tokenizer = _build_model_and_tokenizer(config)
-    datasets = load_qwen_sft_datasets(config.data, tokenizer)
-
-    training_args = _build_training_args(
-        config,
-        has_eval="validation" in datasets and len(datasets["validation"]) > 0,
-    )
-    save_resolved_config(config, training_args.output_dir, "resolved_qwen_sft_config.json")
-
-    data_collator = DataCollatorForSeq2Seq(
-        tokenizer=tokenizer,
-        padding=True,
-        label_pad_token_id=-100,
-        return_tensors="pt",
-    )
-
-    trainer = Trainer(
+    trainer = DPOTrainer(
         model=model,
+        ref_model=None,
         args=training_args,
         train_dataset=datasets["train"],
         eval_dataset=datasets.get("validation"),
-        tokenizer=tokenizer,
-        data_collator=data_collator,
+        processing_class=tokenizer,
+        peft_config=peft_config,
     )
-
     trainer.train()
     trainer.save_model(training_args.output_dir)
     tokenizer.save_pretrained(training_args.output_dir)
@@ -157,35 +120,9 @@ def train(
         "validation_size": len(datasets.get("validation", [])),
         "output_dir": training_args.output_dir,
         "model_name_or_path": config.model.model_name_or_path,
+        "source_adapter_path": config.model.source_adapter_path,
+        "beta": config.train.beta,
     }
     summary_path = Path(training_args.output_dir) / "run_summary.json"
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(json.dumps(summary, ensure_ascii=False, indent=2))
-
-
-@app.command()
-def evaluate(
-    config_path: str = typer.Option(
-        "./configs/qwen_eval_1_5b.json",
-        help="Qwen Eval 配置文件路径",
-    )
-):
-    config = load_qwen_eval_config(config_path)
-    metrics = run_qwen_evaluation(config)
-    print(json.dumps(metrics, ensure_ascii=False, indent=2))
-
-
-@app.command("dpo-train")
-def dpo_train(
-    config_path: str = typer.Option(
-        "./configs/qwen_dpo_1_5b.json",
-        help="Qwen DPO 配置文件路径",
-    )
-):
-    config = load_qwen_dpo_config(config_path)
-    summary = run_qwen_dpo_training(config)
-    print(json.dumps(summary, ensure_ascii=False, indent=2))
-
-
-if __name__ == "__main__":
-    app()
+    return summary

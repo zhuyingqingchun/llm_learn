@@ -5,26 +5,33 @@ from pathlib import Path
 from datasets import Dataset, DatasetDict, load_dataset
 from transformers import PreTrainedTokenizerBase
 
-from .config import QwenDataConfig
+from .config import QwenDataConfig, QwenDPODataConfig
+
+
+def _normalize_role(role: str) -> str:
+    if role in {"human", "user"}:
+        return "user"
+    if role in {"gpt", "assistant"}:
+        return "assistant"
+    if role == "system":
+        return "system"
+    raise ValueError(f"无法识别的 role: {role}")
+
+
+def _normalize_message_list(items: list[dict]) -> list[dict[str, str]]:
+    messages: list[dict[str, str]] = []
+    for item in items:
+        role = _normalize_role(item.get("role") or item.get("from"))
+        content = item.get("content") or item.get("value")
+        messages.append({"role": role, "content": content})
+    return messages
 
 
 def _normalize_training_messages(sample: dict, data_config: QwenDataConfig) -> list[dict[str, str]]:
     if "messages" in sample and sample["messages"]:
         messages = sample["messages"]
     elif "conversations" in sample and sample["conversations"]:
-        messages = []
-        for item in sample["conversations"]:
-            role = item.get("role") or item.get("from")
-            content = item.get("content") or item.get("value")
-            if role in {"human", "user"}:
-                role = "user"
-            elif role in {"gpt", "assistant"}:
-                role = "assistant"
-            elif role == "system":
-                role = "system"
-            else:
-                raise ValueError(f"无法识别的 role: {role}")
-            messages.append({"role": role, "content": content})
+        messages = _normalize_message_list(sample["conversations"])
     elif "instruction" in sample and "output" in sample:
         user_prompt = sample["instruction"]
         if sample.get("input"):
@@ -192,3 +199,120 @@ def load_qwen_eval_dataset(eval_file: str, system_prompt: str) -> Dataset:
         for sample in dataset
     ]
     return Dataset.from_list(normalized)
+
+
+def _normalize_completion_field(value) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list) and value:
+        normalized = _normalize_message_list(value)
+        assistant_messages = [message for message in normalized if message["role"] == "assistant"]
+        if assistant_messages:
+            return assistant_messages[-1]["content"]
+        raise ValueError("偏好样本 completion 列表里缺少 assistant 消息。")
+    raise ValueError("偏好样本的 chosen / rejected 必须是字符串或消息列表。")
+
+
+def _build_prompt_text(
+    tokenizer: PreTrainedTokenizerBase,
+    messages: list[dict[str, str]],
+    system_prompt: str,
+) -> str:
+    has_system = any(message["role"] == "system" for message in messages)
+    if system_prompt and not has_system:
+        messages = [{"role": "system", "content": system_prompt}] + messages
+    return tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=True,
+    )
+
+
+def _normalize_preference_sample(
+    sample: dict,
+    tokenizer: PreTrainedTokenizerBase,
+    data_config: QwenDPODataConfig,
+) -> dict:
+    sample_id = sample.get("id") or sample.get("sample_id") or "unknown"
+
+    if all(key in sample for key in ("prompt", "chosen", "rejected")):
+        prompt = sample["prompt"]
+        if isinstance(prompt, list):
+            prompt_text = _build_prompt_text(tokenizer, _normalize_message_list(prompt), data_config.system_prompt)
+        else:
+            prompt_text = str(prompt)
+    elif all(key in sample for key in ("instruction", "chosen", "rejected")):
+        user_prompt = sample["instruction"]
+        if sample.get("input"):
+            user_prompt = f"{user_prompt}\n\n{sample['input']}"
+        prompt_text = _build_prompt_text(
+            tokenizer,
+            [{"role": "user", "content": user_prompt}],
+            data_config.system_prompt,
+        )
+    elif all(key in sample for key in ("messages", "chosen", "rejected")):
+        prompt_text = _build_prompt_text(
+            tokenizer,
+            _normalize_message_list(sample["messages"]),
+            data_config.system_prompt,
+        )
+    elif all(key in sample for key in ("conversations", "chosen", "rejected")):
+        prompt_text = _build_prompt_text(
+            tokenizer,
+            _normalize_message_list(sample["conversations"]),
+            data_config.system_prompt,
+        )
+    else:
+        raise ValueError(
+            "偏好样本格式不支持。请提供 prompt/chosen/rejected、instruction/chosen/rejected 或 messages/chosen/rejected。"
+        )
+
+    chosen = _normalize_completion_field(sample["chosen"]).strip()
+    rejected = _normalize_completion_field(sample["rejected"]).strip()
+    if not chosen or not rejected:
+        raise ValueError("偏好样本的 chosen / rejected 不能为空。")
+
+    return {
+        "id": str(sample_id),
+        "prompt": prompt_text,
+        "chosen": chosen,
+        "rejected": rejected,
+    }
+
+
+def load_qwen_dpo_datasets(
+    data_config: QwenDPODataConfig,
+    tokenizer: PreTrainedTokenizerBase,
+) -> DatasetDict:
+    train_path = Path(data_config.train_file)
+    if not train_path.exists():
+        raise FileNotFoundError(f"DPO 训练数据不存在: {train_path}")
+
+    data_files = {"train": str(train_path)}
+    if data_config.validation_file:
+        val_path = Path(data_config.validation_file)
+        if not val_path.exists():
+            raise FileNotFoundError(f"DPO 验证数据不存在: {val_path}")
+        data_files["validation"] = str(val_path)
+
+    raw_datasets = load_dataset("json", data_files=data_files)
+    if "validation" not in raw_datasets:
+        split = raw_datasets["train"].train_test_split(
+            test_size=data_config.validation_split_ratio,
+            seed=42,
+        )
+        raw_datasets = DatasetDict({"train": split["train"], "validation": split["test"]})
+
+    remove_columns = raw_datasets["train"].column_names
+    normalized = raw_datasets.map(
+        lambda sample: _normalize_preference_sample(sample, tokenizer, data_config),
+        remove_columns=remove_columns,
+        num_proc=data_config.preprocessing_num_workers,
+        desc="Normalizing Qwen DPO dataset",
+    )
+
+    normalized = normalized.filter(
+        lambda sample: bool(sample["prompt"].strip()) and bool(sample["chosen"].strip()) and bool(sample["rejected"].strip()),
+        desc="Filtering empty preference samples",
+    )
+    return normalized

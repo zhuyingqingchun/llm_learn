@@ -1,0 +1,1345 @@
+--- a/configs/qwen_dpo_1_5b.json
++++ b/configs/qwen_dpo_1_5b.json
+@@ -0,0 +1,52 @@
++{
+
++  "model": {
+
++    "model_name_or_path": "Qwen/Qwen2.5-1.5B-Instruct",
+
++    "trust_remote_code": true,
+
++    "use_lora": true,
+
++    "load_in_4bit": false,
+
++    "source_adapter_path": "./qwen_checkpoints/qwen2_5_1_5b_sft",
+
++    "lora_r": 16,
+
++    "lora_alpha": 32,
+
++    "lora_dropout": 0.05,
+
++    "target_modules": [
+
++      "q_proj",
+
++      "k_proj",
+
++      "v_proj",
+
++      "o_proj",
+
++      "gate_proj",
+
++      "up_proj",
+
++      "down_proj"
+
++    ]
+
++  },
+
++  "data": {
+
++    "train_file": "./data/qwen/preference_train.jsonl",
+
++    "validation_file": "./data/qwen/preference_val.jsonl",
+
++    "validation_split_ratio": 0.02,
+
++    "max_prompt_length": 1024,
+
++    "max_completion_length": 512,
+
++    "preprocessing_num_workers": 1,
+
++    "system_prompt": "You are a helpful assistant."
+
++  },
+
++  "train": {
+
++    "output_dir": "./qwen_checkpoints/qwen2_5_1_5b_dpo",
+
++    "beta": 0.1,
+
++    "num_train_epochs": 1,
+
++    "learning_rate": 1e-05,
+
++    "weight_decay": 0.0,
+
++    "warmup_ratio": 0.03,
+
++    "per_device_train_batch_size": 1,
+
++    "per_device_eval_batch_size": 1,
+
++    "gradient_accumulation_steps": 8,
+
++    "logging_steps": 10,
+
++    "save_steps": 100,
+
++    "eval_steps": 100,
+
++    "save_total_limit": 2,
+
++    "bf16": true,
+
++    "fp16": false,
+
++    "gradient_checkpointing": true,
+
++    "seed": 42,
+
++    "report_to": [
+
++      "tensorboard"
+
++    ]
+
++  }
+
++}
+
+--- a/configs/qwen_dpo_7b.json
++++ b/configs/qwen_dpo_7b.json
+@@ -0,0 +1,52 @@
++{
+
++  "model": {
+
++    "model_name_or_path": "Qwen/Qwen2.5-7B-Instruct",
+
++    "trust_remote_code": true,
+
++    "use_lora": true,
+
++    "load_in_4bit": true,
+
++    "source_adapter_path": "./qwen_checkpoints/qwen2_5_7b_sft",
+
++    "lora_r": 16,
+
++    "lora_alpha": 32,
+
++    "lora_dropout": 0.05,
+
++    "target_modules": [
+
++      "q_proj",
+
++      "k_proj",
+
++      "v_proj",
+
++      "o_proj",
+
++      "gate_proj",
+
++      "up_proj",
+
++      "down_proj"
+
++    ]
+
++  },
+
++  "data": {
+
++    "train_file": "./data/qwen/preference_train.jsonl",
+
++    "validation_file": "./data/qwen/preference_val.jsonl",
+
++    "validation_split_ratio": 0.02,
+
++    "max_prompt_length": 1024,
+
++    "max_completion_length": 512,
+
++    "preprocessing_num_workers": 1,
+
++    "system_prompt": "You are a helpful assistant."
+
++  },
+
++  "train": {
+
++    "output_dir": "./qwen_checkpoints/qwen2_5_7b_dpo",
+
++    "beta": 0.1,
+
++    "num_train_epochs": 1,
+
++    "learning_rate": 1e-05,
+
++    "weight_decay": 0.0,
+
++    "warmup_ratio": 0.03,
+
++    "per_device_train_batch_size": 1,
+
++    "per_device_eval_batch_size": 1,
+
++    "gradient_accumulation_steps": 16,
+
++    "logging_steps": 10,
+
++    "save_steps": 100,
+
++    "eval_steps": 100,
+
++    "save_total_limit": 2,
+
++    "bf16": true,
+
++    "fp16": false,
+
++    "gradient_checkpointing": true,
+
++    "seed": 42,
+
++    "report_to": [
+
++      "tensorboard"
+
++    ]
+
++  }
+
++}
+
+--- a/data/qwen/examples/preference.example.jsonl
++++ b/data/qwen/examples/preference.example.jsonl
+@@ -0,0 +1,2 @@
++{"id":"pref-1","prompt":"解释什么是 LoRA。","chosen":"LoRA 是一种低秩适配方法，只训练少量新增参数。","rejected":"LoRA 就是直接做全参数训练。"}
+
++{"id":"pref-2","instruction":"把下面这句话翻译成英文","input":"我今天很开心。","chosen":"I am very happy today.","rejected":"Today happy."}
+
+--- a/data/qwen/examples/preference_messages.example.jsonl
++++ b/data/qwen/examples/preference_messages.example.jsonl
+@@ -0,0 +1 @@
++{"id":"pref-msg-1","messages":[{"role":"system","content":"You are a helpful assistant."},{"role":"user","content":"简要解释 DPO 的作用。"}],"chosen":"DPO 用偏好对数据直接优化模型，让模型更偏向人类更喜欢的回答。","rejected":"DPO 就是随机改写一下回答。"}
+
+--- a/makefile
++++ b/makefile
+@@ -7,6 +7,7 @@
+ 
+
+ QWEN_SFT_CONFIG ?= ./configs/qwen_sft_1_5b.json
+
+ QWEN_EVAL_CONFIG ?= ./configs/qwen_eval_1_5b.json
+
++QWEN_DPO_CONFIG ?= ./configs/qwen_dpo_1_5b.json
+
+ 
+
+ .PHONY: install
+
+ install:
+
+@@ -32,3 +33,7 @@
+ .PHONY: qwen-sft-eval
+
+ qwen-sft-eval:
+
+ 	uv run qwen-sft evaluate --config-path $(QWEN_EVAL_CONFIG)
+
++
+
++.PHONY: qwen-dpo-train
+
++qwen-dpo-train:
+
++	uv run qwen-sft dpo-train --config-path $(QWEN_DPO_CONFIG)
+
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -13,6 +13,7 @@
+     "numpy>=2.3.4",
+
+     "pandas>=2.3.3",
+
+     "peft>=0.14.0",
+
++    "trl>=1.1.0",
+
+     "pytest>=8.4.2",
+
+     "scikit-learn>=1.8.0",
+
+     "scipy>=1.17.1",
+
+--- a/src/qwen/README.md
++++ b/src/qwen/README.md
+@@ -1,10 +1,10 @@
+-# Qwen 最小 SFT / Eval 骨架
+
++# Qwen 最小 SFT / Eval / DPO 骨架
+
+ 
+
+-这个目录提供了一个最小可运行的 Qwen SFT 训练和评测入口，目标是先把 **数据格式 -> LoRA/QLoRA 微调 -> checkpoint 输出 -> 模型评测** 这条链打通。
+
++这个目录提供了一个最小可运行的 Qwen **SFT / Eval / DPO** 入口，目标是把 **数据格式 -> LoRA/QLoRA 微调 -> checkpoint 输出 -> 模型评测 -> 偏好对齐** 这条链逐步打通。
+
+ 
+
+ ## 当前支持的数据格式
+
+ 
+
+-### 1. messages 格式
+
++### 1. SFT: messages 格式
+
+ ```json
+
+ {"messages":[
+
+   {"role":"system","content":"You are a helpful assistant."},
+
+@@ -13,20 +13,29 @@
+ ]}
+
+ ```
+
+ 
+
+-### 2. instruction / input / output 格式
+
++### 2. SFT: instruction / input / output 格式
+
+ ```json
+
+ {"instruction":"解释 Transformer 是什么","input":"","output":"Transformer 是一种基于注意力机制的序列建模架构。"}
+
+ ```
+
+ 
+
+-### 3. prompt / response 格式
+
++### 3. SFT: prompt / response 格式
+
+ ```json
+
+ {"prompt":"给我一句鼓励的话","response":"继续推进，你已经离可复用训练链路很近了。"}
+
+ ```
+
+ 
+
++### 4. DPO: preference 格式
+
++```json
+
++{"prompt":"解释什么是 LoRA。","chosen":"LoRA 是一种低秩适配方法，只训练少量新增参数。","rejected":"LoRA 就是直接做全参数训练。"}
+
++```
+
++
+
++也支持：
+
++- `instruction / input / chosen / rejected`
+
++- `messages / chosen / rejected`
+
++- `prompt(消息列表) / chosen / rejected`
+
++
+
+ ## 最小运行方式
+
+ 
+
+-### 训练
+
+-
+
++### SFT 训练
+
+ ```bash
+
+ make qwen-sft-train
+
+ ```
+
+@@ -38,7 +47,6 @@
+ ```
+
+ 
+
+ ### 评测
+
+-
+
+ ```bash
+
+ make qwen-sft-eval
+
+ ```
+
+@@ -49,15 +57,35 @@
+ uv run qwen-sft evaluate --config-path ./configs/qwen_eval_1_5b.json
+
+ ```
+
+ 
+
++### DPO 训练
+
++```bash
+
++make qwen-dpo-train
+
++```
+
++
+
++或者：
+
++
+
++```bash
+
++uv run qwen-sft dpo-train --config-path ./configs/qwen_dpo_1_5b.json
+
++```
+
++
+
+ ## 配置文件说明
+
+ 
+
+ | 配置文件 | 用途 |
+
+ |---------|------|
+
+ | `configs/qwen_sft_1_5b.json` | 1.5B 模型 SFT 训练配置 |
+
+ | `configs/qwen_eval_1_5b.json` | 1.5B 模型评测配置 |
+
++| `configs/qwen_dpo_1_5b.json` | 1.5B 模型 DPO 训练配置 |
+
+ | `configs/qwen_sft_7b.json` | 7B 模型 SFT 训练配置（4bit 量化） |
+
+ | `configs/qwen_eval_7b.json` | 7B 模型评测配置（4bit 量化） |
+
++| `configs/qwen_dpo_7b.json` | 7B 模型 DPO 训练配置（4bit 量化） |
+
++
+
++## 推荐流程
+
++
+
++1. 先用 `qwen_sft_1_5b.json` 跑通 SFT。
+
++2. 再用 `qwen_eval_1_5b.json` 做基础评测。
+
++3. 确认 SFT adapter 正常后，再把 `source_adapter_path` 写入 `qwen_dpo_1_5b.json`，开始 DPO。
+
++4. 最后再切到 7B 配置。
+
+ 
+
+ ## 示例数据
+
+ 
+
+-`data/qwen/examples/` 目录下提供了训练和评测的示例数据模板。
+
++`data/qwen/examples/` 目录下提供了训练、评测和偏好样本模板。
+
+--- a/src/qwen/__init__.py
++++ b/src/qwen/__init__.py
+@@ -1 +1 @@
+-"""Qwen 系列模型的最小 SFT / Eval 训练骨架。"""
+
++"""Qwen 系列模型的最小 SFT / Eval / DPO 训练骨架。"""
+
+--- a/src/qwen/cli.py
++++ b/src/qwen/cli.py
+@@ -19,15 +19,17 @@
+ from .config import (
+
+     QwenEvalConfig,
+
+     QwenSFTConfig,
+
++    load_qwen_dpo_config,
+
+     load_qwen_eval_config,
+
+     load_qwen_sft_config,
+
+     save_resolved_config,
+
+ )
+
+ from .data import load_qwen_sft_datasets
+
++from .dpo import run_qwen_dpo_training
+
+ from .eval import run_qwen_evaluation
+
+ 
+
+ 
+
+-app = typer.Typer(help="Qwen 最小 SFT / Eval 入口")
+
++app = typer.Typer(help="Qwen 最小 SFT / Eval / DPO 入口")
+
+ 
+
+ 
+
+ def _build_quantization_config(config: QwenSFTConfig):
+
+@@ -82,7 +84,7 @@
+ 
+
+ 
+
+ def _build_training_args(config: QwenSFTConfig, has_eval: bool) -> TrainingArguments:
+
+-    evaluation_strategy = "steps" if has_eval else "no"
+
++    eval_strategy = "steps" if has_eval else "no"
+
+     report_to = config.train.report_to if config.train.report_to else []
+
+ 
+
+     return TrainingArguments(
+
+@@ -102,7 +104,7 @@
+         fp16=config.train.fp16,
+
+         remove_unused_columns=False,
+
+         gradient_checkpointing=config.train.gradient_checkpointing,
+
+-        evaluation_strategy=evaluation_strategy,
+
++        eval_strategy=eval_strategy,
+
+         save_strategy="steps",
+
+         logging_strategy="steps",
+
+         report_to=report_to,
+
+@@ -173,5 +175,17 @@
+     print(json.dumps(metrics, ensure_ascii=False, indent=2))
+
+ 
+
+ 
+
++@app.command("dpo-train")
+
++def dpo_train(
+
++    config_path: str = typer.Option(
+
++        "./configs/qwen_dpo_1_5b.json",
+
++        help="Qwen DPO 配置文件路径",
+
++    )
+
++):
+
++    config = load_qwen_dpo_config(config_path)
+
++    summary = run_qwen_dpo_training(config)
+
++    print(json.dumps(summary, ensure_ascii=False, indent=2))
+
++
+
++
+
+ if __name__ == "__main__":
+
+     app()
+
+--- a/src/qwen/config.py
++++ b/src/qwen/config.py
+@@ -12,6 +12,7 @@
+     trust_remote_code: bool = True
+
+     use_lora: bool = True
+
+     load_in_4bit: bool = False
+
++    source_adapter_path: str | None = None
+
+     lora_r: int = 16
+
+     lora_alpha: int = 32
+
+     lora_dropout: float = 0.05
+
+@@ -91,6 +92,49 @@
+         return asdict(self)
+
+ 
+
+ 
+
++@dataclass
+
++class QwenDPODataConfig:
+
++    train_file: str = "./data/qwen/preference_train.jsonl"
+
++    validation_file: str | None = "./data/qwen/preference_val.jsonl"
+
++    validation_split_ratio: float = 0.02
+
++    max_prompt_length: int = 1024
+
++    max_completion_length: int = 512
+
++    preprocessing_num_workers: int = 1
+
++    system_prompt: str = "You are a helpful assistant."
+
++
+
++
+
++@dataclass
+
++class QwenDPOTrainConfig:
+
++    output_dir: str = "./qwen_checkpoints/qwen2_5_1_5b_dpo"
+
++    beta: float = 0.1
+
++    num_train_epochs: int = 1
+
++    learning_rate: float = 1e-5
+
++    weight_decay: float = 0.0
+
++    warmup_ratio: float = 0.03
+
++    per_device_train_batch_size: int = 1
+
++    per_device_eval_batch_size: int = 1
+
++    gradient_accumulation_steps: int = 8
+
++    logging_steps: int = 10
+
++    save_steps: int = 100
+
++    eval_steps: int = 100
+
++    save_total_limit: int = 2
+
++    bf16: bool = True
+
++    fp16: bool = False
+
++    gradient_checkpointing: bool = True
+
++    seed: int = 42
+
++    report_to: list[str] = field(default_factory=lambda: ["tensorboard"])
+
++
+
++
+
++@dataclass
+
++class QwenDPOConfig:
+
++    model: QwenModelConfig = field(default_factory=QwenModelConfig)
+
++    data: QwenDPODataConfig = field(default_factory=QwenDPODataConfig)
+
++    train: QwenDPOTrainConfig = field(default_factory=QwenDPOTrainConfig)
+
++
+
++    def to_dict(self) -> dict[str, Any]:
+
++        return asdict(self)
+
++
+
++
+
+ def _build_dataclass(cls: type, payload: dict[str, Any]):
+
+     allowed = {f.name for f in fields(cls)}
+
+     filtered = {k: v for k, v in payload.items() if k in allowed}
+
+@@ -115,7 +159,22 @@
+     return _build_dataclass(QwenEvalConfig, payload)
+
+ 
+
+ 
+
+-def save_resolved_config(config: QwenSFTConfig | QwenEvalConfig, output_dir: str | Path, filename: str = "resolved_qwen_sft_config.json") -> Path:
+
++def load_qwen_dpo_config(config_path: str | Path) -> QwenDPOConfig:
+
++    path = Path(config_path)
+
++    with path.open("r", encoding="utf-8") as f:
+
++        payload = json.load(f)
+
++
+
++    model_cfg = _build_dataclass(QwenModelConfig, payload.get("model", {}))
+
++    data_cfg = _build_dataclass(QwenDPODataConfig, payload.get("data", {}))
+
++    train_cfg = _build_dataclass(QwenDPOTrainConfig, payload.get("train", {}))
+
++    return QwenDPOConfig(model=model_cfg, data=data_cfg, train=train_cfg)
+
++
+
++
+
++def save_resolved_config(
+
++    config: QwenSFTConfig | QwenEvalConfig | QwenDPOConfig,
+
++    output_dir: str | Path,
+
++    filename: str = "resolved_qwen_sft_config.json",
+
++) -> Path:
+
+     output_path = Path(output_dir)
+
+     output_path.mkdir(parents=True, exist_ok=True)
+
+     config_path = output_path / filename
+
+--- a/src/qwen/data.py
++++ b/src/qwen/data.py
+@@ -5,26 +5,33 @@
+ from datasets import Dataset, DatasetDict, load_dataset
+
+ from transformers import PreTrainedTokenizerBase
+
+ 
+
+-from .config import QwenDataConfig
+
++from .config import QwenDataConfig, QwenDPODataConfig
+
++
+
++
+
++def _normalize_role(role: str) -> str:
+
++    if role in {"human", "user"}:
+
++        return "user"
+
++    if role in {"gpt", "assistant"}:
+
++        return "assistant"
+
++    if role == "system":
+
++        return "system"
+
++    raise ValueError(f"无法识别的 role: {role}")
+
++
+
++
+
++def _normalize_message_list(items: list[dict]) -> list[dict[str, str]]:
+
++    messages: list[dict[str, str]] = []
+
++    for item in items:
+
++        role = _normalize_role(item.get("role") or item.get("from"))
+
++        content = item.get("content") or item.get("value")
+
++        messages.append({"role": role, "content": content})
+
++    return messages
+
+ 
+
+ 
+
+ def _normalize_training_messages(sample: dict, data_config: QwenDataConfig) -> list[dict[str, str]]:
+
+     if "messages" in sample and sample["messages"]:
+
+         messages = sample["messages"]
+
+     elif "conversations" in sample and sample["conversations"]:
+
+-        messages = []
+
+-        for item in sample["conversations"]:
+
+-            role = item.get("role") or item.get("from")
+
+-            content = item.get("content") or item.get("value")
+
+-            if role in {"human", "user"}:
+
+-                role = "user"
+
+-            elif role in {"gpt", "assistant"}:
+
+-                role = "assistant"
+
+-            elif role == "system":
+
+-                role = "system"
+
+-            else:
+
+-                raise ValueError(f"无法识别的 role: {role}")
+
+-            messages.append({"role": role, "content": content})
+
++        messages = _normalize_message_list(sample["conversations"])
+
+     elif "instruction" in sample and "output" in sample:
+
+         user_prompt = sample["instruction"]
+
+         if sample.get("input"):
+
+@@ -192,3 +199,120 @@
+         for sample in dataset
+
+     ]
+
+     return Dataset.from_list(normalized)
+
++
+
++
+
++def _normalize_completion_field(value) -> str:
+
++    if isinstance(value, str):
+
++        return value
+
++    if isinstance(value, list) and value:
+
++        normalized = _normalize_message_list(value)
+
++        assistant_messages = [message for message in normalized if message["role"] == "assistant"]
+
++        if assistant_messages:
+
++            return assistant_messages[-1]["content"]
+
++        raise ValueError("偏好样本 completion 列表里缺少 assistant 消息。")
+
++    raise ValueError("偏好样本的 chosen / rejected 必须是字符串或消息列表。")
+
++
+
++
+
++def _build_prompt_text(
+
++    tokenizer: PreTrainedTokenizerBase,
+
++    messages: list[dict[str, str]],
+
++    system_prompt: str,
+
++) -> str:
+
++    has_system = any(message["role"] == "system" for message in messages)
+
++    if system_prompt and not has_system:
+
++        messages = [{"role": "system", "content": system_prompt}] + messages
+
++    return tokenizer.apply_chat_template(
+
++        messages,
+
++        tokenize=False,
+
++        add_generation_prompt=True,
+
++    )
+
++
+
++
+
++def _normalize_preference_sample(
+
++    sample: dict,
+
++    tokenizer: PreTrainedTokenizerBase,
+
++    data_config: QwenDPODataConfig,
+
++) -> dict:
+
++    sample_id = sample.get("id") or sample.get("sample_id") or "unknown"
+
++
+
++    if all(key in sample for key in ("prompt", "chosen", "rejected")):
+
++        prompt = sample["prompt"]
+
++        if isinstance(prompt, list):
+
++            prompt_text = _build_prompt_text(tokenizer, _normalize_message_list(prompt), data_config.system_prompt)
+
++        else:
+
++            prompt_text = str(prompt)
+
++    elif all(key in sample for key in ("instruction", "chosen", "rejected")):
+
++        user_prompt = sample["instruction"]
+
++        if sample.get("input"):
+
++            user_prompt = f"{user_prompt}\n\n{sample['input']}"
+
++        prompt_text = _build_prompt_text(
+
++            tokenizer,
+
++            [{"role": "user", "content": user_prompt}],
+
++            data_config.system_prompt,
+
++        )
+
++    elif all(key in sample for key in ("messages", "chosen", "rejected")):
+
++        prompt_text = _build_prompt_text(
+
++            tokenizer,
+
++            _normalize_message_list(sample["messages"]),
+
++            data_config.system_prompt,
+
++        )
+
++    elif all(key in sample for key in ("conversations", "chosen", "rejected")):
+
++        prompt_text = _build_prompt_text(
+
++            tokenizer,
+
++            _normalize_message_list(sample["conversations"]),
+
++            data_config.system_prompt,
+
++        )
+
++    else:
+
++        raise ValueError(
+
++            "偏好样本格式不支持。请提供 prompt/chosen/rejected、instruction/chosen/rejected 或 messages/chosen/rejected。"
+
++        )
+
++
+
++    chosen = _normalize_completion_field(sample["chosen"]).strip()
+
++    rejected = _normalize_completion_field(sample["rejected"]).strip()
+
++    if not chosen or not rejected:
+
++        raise ValueError("偏好样本的 chosen / rejected 不能为空。")
+
++
+
++    return {
+
++        "id": str(sample_id),
+
++        "prompt": prompt_text,
+
++        "chosen": chosen,
+
++        "rejected": rejected,
+
++    }
+
++
+
++
+
++def load_qwen_dpo_datasets(
+
++    data_config: QwenDPODataConfig,
+
++    tokenizer: PreTrainedTokenizerBase,
+
++) -> DatasetDict:
+
++    train_path = Path(data_config.train_file)
+
++    if not train_path.exists():
+
++        raise FileNotFoundError(f"DPO 训练数据不存在: {train_path}")
+
++
+
++    data_files = {"train": str(train_path)}
+
++    if data_config.validation_file:
+
++        val_path = Path(data_config.validation_file)
+
++        if not val_path.exists():
+
++            raise FileNotFoundError(f"DPO 验证数据不存在: {val_path}")
+
++        data_files["validation"] = str(val_path)
+
++
+
++    raw_datasets = load_dataset("json", data_files=data_files)
+
++    if "validation" not in raw_datasets:
+
++        split = raw_datasets["train"].train_test_split(
+
++            test_size=data_config.validation_split_ratio,
+
++            seed=42,
+
++        )
+
++        raw_datasets = DatasetDict({"train": split["train"], "validation": split["test"]})
+
++
+
++    remove_columns = raw_datasets["train"].column_names
+
++    normalized = raw_datasets.map(
+
++        lambda sample: _normalize_preference_sample(sample, tokenizer, data_config),
+
++        remove_columns=remove_columns,
+
++        num_proc=data_config.preprocessing_num_workers,
+
++        desc="Normalizing Qwen DPO dataset",
+
++    )
+
++
+
++    normalized = normalized.filter(
+
++        lambda sample: bool(sample["prompt"].strip()) and bool(sample["chosen"].strip()) and bool(sample["rejected"].strip()),
+
++        desc="Filtering empty preference samples",
+
++    )
+
++    return normalized
+
+--- a/src/qwen/dpo.py
++++ b/src/qwen/dpo.py
+@@ -0,0 +1,134 @@
++from __future__ import annotations
+
++
+
++from pathlib import Path
+
++import json
+
++
+
++import torch
+
++from peft import LoraConfig, PeftModel, prepare_model_for_kbit_training
+
++from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, set_seed
+
++from trl import DPOConfig, DPOTrainer
+
++
+
++from .config import QwenDPOConfig, save_resolved_config
+
++from .data import load_qwen_dpo_datasets
+
++
+
++
+
++def _build_quantization_config(config: QwenDPOConfig):
+
++    if not config.model.load_in_4bit:
+
++        return None
+
++    compute_dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
+
++    return BitsAndBytesConfig(
+
++        load_in_4bit=True,
+
++        bnb_4bit_quant_type="nf4",
+
++        bnb_4bit_use_double_quant=True,
+
++        bnb_4bit_compute_dtype=compute_dtype,
+
++    )
+
++
+
++
+
++def _build_model_tokenizer_and_peft(config: QwenDPOConfig):
+
++    tokenizer = AutoTokenizer.from_pretrained(
+
++        config.model.model_name_or_path,
+
++        trust_remote_code=config.model.trust_remote_code,
+
++        use_fast=False,
+
++    )
+
++    if tokenizer.pad_token is None:
+
++        tokenizer.pad_token = tokenizer.eos_token
+
++    tokenizer.padding_side = "right"
+
++
+
++    quantization_config = _build_quantization_config(config)
+
++    model = AutoModelForCausalLM.from_pretrained(
+
++        config.model.model_name_or_path,
+
++        trust_remote_code=config.model.trust_remote_code,
+
++        quantization_config=quantization_config,
+
++        torch_dtype=torch.bfloat16 if config.train.bf16 and torch.cuda.is_available() else None,
+
++    )
+
++    model.config.use_cache = False
+
++
+
++    if config.train.gradient_checkpointing:
+
++        model.gradient_checkpointing_enable()
+
++
+
++    peft_config = None
+
++    if config.model.load_in_4bit:
+
++        model = prepare_model_for_kbit_training(model)
+
++
+
++    if config.model.source_adapter_path:
+
++        model = PeftModel.from_pretrained(
+
++            model,
+
++            config.model.source_adapter_path,
+
++            is_trainable=True,
+
++        )
+
++        model.print_trainable_parameters()
+
++    elif config.model.use_lora:
+
++        peft_config = LoraConfig(
+
++            r=config.model.lora_r,
+
++            lora_alpha=config.model.lora_alpha,
+
++            lora_dropout=config.model.lora_dropout,
+
++            target_modules=config.model.target_modules,
+
++            bias="none",
+
++            task_type="CAUSAL_LM",
+
++        )
+
++
+
++    return model, tokenizer, peft_config
+
++
+
++
+
++def run_qwen_dpo_training(config: QwenDPOConfig) -> dict:
+
++    set_seed(config.train.seed)
+
++
+
++    model, tokenizer, peft_config = _build_model_tokenizer_and_peft(config)
+
++    datasets = load_qwen_dpo_datasets(config.data, tokenizer)
+
++    has_eval = "validation" in datasets and len(datasets["validation"]) > 0
+
++
+
++    report_to = config.train.report_to if config.train.report_to else []
+
++    training_args = DPOConfig(
+
++        output_dir=config.train.output_dir,
+
++        beta=config.train.beta,
+
++        num_train_epochs=config.train.num_train_epochs,
+
++        learning_rate=config.train.learning_rate,
+
++        weight_decay=config.train.weight_decay,
+
++        warmup_ratio=config.train.warmup_ratio,
+
++        per_device_train_batch_size=config.train.per_device_train_batch_size,
+
++        per_device_eval_batch_size=config.train.per_device_eval_batch_size,
+
++        gradient_accumulation_steps=config.train.gradient_accumulation_steps,
+
++        logging_steps=config.train.logging_steps,
+
++        save_steps=config.train.save_steps,
+
++        eval_steps=config.train.eval_steps,
+
++        save_total_limit=config.train.save_total_limit,
+
++        bf16=config.train.bf16,
+
++        fp16=config.train.fp16,
+
++        gradient_checkpointing=config.train.gradient_checkpointing,
+
++        seed=config.train.seed,
+
++        report_to=report_to,
+
++        save_strategy="steps",
+
++        logging_strategy="steps",
+
++        eval_strategy="steps" if has_eval else "no",
+
++        remove_unused_columns=False,
+
++        max_prompt_length=config.data.max_prompt_length,
+
++        max_completion_length=config.data.max_completion_length,
+
++        dataset_num_proc=config.data.preprocessing_num_workers,
+
++    )
+
++
+
++    save_resolved_config(config, training_args.output_dir, "resolved_qwen_dpo_config.json")
+
++
+
++    trainer = DPOTrainer(
+
++        model=model,
+
++        ref_model=None,
+
++        args=training_args,
+
++        train_dataset=datasets["train"],
+
++        eval_dataset=datasets.get("validation"),
+
++        processing_class=tokenizer,
+
++        peft_config=peft_config,
+
++    )
+
++    trainer.train()
+
++    trainer.save_model(training_args.output_dir)
+
++    tokenizer.save_pretrained(training_args.output_dir)
+
++
+
++    summary = {
+
++        "train_size": len(datasets["train"]),
+
++        "validation_size": len(datasets.get("validation", [])),
+
++        "output_dir": training_args.output_dir,
+
++        "model_name_or_path": config.model.model_name_or_path,
+
++        "source_adapter_path": config.model.source_adapter_path,
+
++        "beta": config.train.beta,
+
++    }
+
++    summary_path = Path(training_args.output_dir) / "run_summary.json"
+
++    summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+
++    return summary

@@ -1,0 +1,52 @@
+{
+  "model": {
+    "model_name_or_path": "Qwen/Qwen2.5-7B-Instruct",
+    "trust_remote_code": true,
+    "use_lora": true,
+    "load_in_4bit": true,
+    "source_adapter_path": "./qwen_checkpoints/qwen2_5_7b_sft",
+    "lora_r": 16,
+    "lora_alpha": 32,
+    "lora_dropout": 0.05,
+    "target_modules": [
+      "q_proj",
+      "k_proj",
+      "v_proj",
+      "o_proj",
+      "gate_proj",
+      "up_proj",
+      "down_proj"
+    ]
+  },
+  "data": {
+    "train_file": "./data/qwen/preference_train.jsonl",
+    "validation_file": "./data/qwen/preference_val.jsonl",
+    "validation_split_ratio": 0.02,
+    "max_prompt_length": 1024,
+    "max_completion_length": 512,
+    "preprocessing_num_workers": 1,
+    "system_prompt": "You are a helpful assistant."
+  },
+  "train": {
+    "output_dir": "./qwen_checkpoints/qwen2_5_7b_dpo",
+    "beta": 0.1,
+    "num_train_epochs": 1,
+    "learning_rate": 1e-05,
+    "weight_decay": 0.0,
+    "warmup_ratio": 0.03,
+    "per_device_train_batch_size": 1,
+    "per_device_eval_batch_size": 1,
+    "gradient_accumulation_steps": 16,
+    "logging_steps": 10,
+    "save_steps": 100,
+    "eval_steps": 100,
+    "save_total_limit": 2,
+    "bf16": true,
+    "fp16": false,
+    "gradient_checkpointing": true,
+    "seed": 42,
+    "report_to": [
+      "tensorboard"
+    ]
+  }
+}

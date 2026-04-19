@@ -12,6 +12,7 @@ class QwenModelConfig:
     trust_remote_code: bool = True
     use_lora: bool = True
     load_in_4bit: bool = False
+    source_adapter_path: str | None = None
     lora_r: int = 16
     lora_alpha: int = 32
     lora_dropout: float = 0.05
@@ -91,6 +92,49 @@ class QwenEvalConfig:
         return asdict(self)
 
 
+@dataclass
+class QwenDPODataConfig:
+    train_file: str = "./data/qwen/preference_train.jsonl"
+    validation_file: str | None = "./data/qwen/preference_val.jsonl"
+    validation_split_ratio: float = 0.02
+    max_prompt_length: int = 1024
+    max_completion_length: int = 512
+    preprocessing_num_workers: int = 1
+    system_prompt: str = "You are a helpful assistant."
+
+
+@dataclass
+class QwenDPOTrainConfig:
+    output_dir: str = "./qwen_checkpoints/qwen2_5_1_5b_dpo"
+    beta: float = 0.1
+    num_train_epochs: int = 1
+    learning_rate: float = 1e-5
+    weight_decay: float = 0.0
+    warmup_ratio: float = 0.03
+    per_device_train_batch_size: int = 1
+    per_device_eval_batch_size: int = 1
+    gradient_accumulation_steps: int = 8
+    logging_steps: int = 10
+    save_steps: int = 100
+    eval_steps: int = 100
+    save_total_limit: int = 2
+    bf16: bool = True
+    fp16: bool = False
+    gradient_checkpointing: bool = True
+    seed: int = 42
+    report_to: list[str] = field(default_factory=lambda: ["tensorboard"])
+
+
+@dataclass
+class QwenDPOConfig:
+    model: QwenModelConfig = field(default_factory=QwenModelConfig)
+    data: QwenDPODataConfig = field(default_factory=QwenDPODataConfig)
+    train: QwenDPOTrainConfig = field(default_factory=QwenDPOTrainConfig)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
 def _build_dataclass(cls: type, payload: dict[str, Any]):
     allowed = {f.name for f in fields(cls)}
     filtered = {k: v for k, v in payload.items() if k in allowed}
@@ -115,7 +159,22 @@ def load_qwen_eval_config(config_path: str | Path) -> QwenEvalConfig:
     return _build_dataclass(QwenEvalConfig, payload)
 
 
-def save_resolved_config(config: QwenSFTConfig | QwenEvalConfig, output_dir: str | Path, filename: str = "resolved_qwen_sft_config.json") -> Path:
+def load_qwen_dpo_config(config_path: str | Path) -> QwenDPOConfig:
+    path = Path(config_path)
+    with path.open("r", encoding="utf-8") as f:
+        payload = json.load(f)
+
+    model_cfg = _build_dataclass(QwenModelConfig, payload.get("model", {}))
+    data_cfg = _build_dataclass(QwenDPODataConfig, payload.get("data", {}))
+    train_cfg = _build_dataclass(QwenDPOTrainConfig, payload.get("train", {}))
+    return QwenDPOConfig(model=model_cfg, data=data_cfg, train=train_cfg)
+
+
+def save_resolved_config(
+    config: QwenSFTConfig | QwenEvalConfig | QwenDPOConfig,
+    output_dir: str | Path,
+    filename: str = "resolved_qwen_sft_config.json",
+) -> Path:
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     config_path = output_path / filename
