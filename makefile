@@ -8,6 +8,8 @@ TOKENIZER_PATH ?= gpt2
 QWEN_SFT_CONFIG ?= ./configs/qwen_sft_1_5b.json
 QWEN_EVAL_CONFIG ?= ./configs/qwen_eval_1_5b.json
 QWEN_DPO_CONFIG ?= ./configs/qwen_dpo_1_5b.json
+QWEN_DAY1_SFT_CONFIG ?= ./configs/qwen_sft_day1_smoke.json
+QWEN_DAY1_EVAL_CONFIG ?= ./configs/qwen_eval_day1_smoke.json
 
 .PHONY: install
 install:
@@ -37,3 +39,11 @@ qwen-sft-eval:
 .PHONY: qwen-dpo-train
 qwen-dpo-train:
 	uv run qwen-sft dpo-train --config-path $(QWEN_DPO_CONFIG)
+
+.PHONY: qwen-day1-train
+qwen-day1-train:
+	uv run qwen-sft train --config-path $(QWEN_DAY1_SFT_CONFIG)
+
+.PHONY: qwen-day1-eval
+qwen-day1-eval:
+	uv run qwen-sft evaluate --config-path $(QWEN_DAY1_EVAL_CONFIG)

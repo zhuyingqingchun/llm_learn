@@ -28,19 +28,20 @@ def _normalize_message_list(items: list[dict]) -> list[dict[str, str]]:
 
 
 def _normalize_training_messages(sample: dict, data_config: QwenDataConfig) -> list[dict[str, str]]:
-    if "messages" in sample and sample["messages"]:
+    if "messages" in sample and sample.get("messages"):
         messages = sample["messages"]
-    elif "conversations" in sample and sample["conversations"]:
+    elif "conversations" in sample and sample.get("conversations"):
         messages = _normalize_message_list(sample["conversations"])
-    elif "instruction" in sample and "output" in sample:
+    elif sample.get("instruction") is not None and sample.get("output") is not None:
         user_prompt = sample["instruction"]
-        if sample.get("input"):
-            user_prompt = f"{user_prompt}\n\n{sample['input']}"
+        input_text = sample.get("input")
+        if input_text:
+            user_prompt = f"{user_prompt}\n\n{input_text}"
         messages = [
             {"role": "user", "content": user_prompt},
             {"role": "assistant", "content": sample["output"]},
         ]
-    elif "prompt" in sample and "response" in sample:
+    elif sample.get("prompt") is not None and sample.get("response") is not None:
         messages = [
             {"role": "user", "content": sample["prompt"]},
             {"role": "assistant", "content": sample["response"]},
@@ -160,18 +161,19 @@ def _normalize_eval_sample(sample: dict, system_prompt: str) -> dict:
     sample_id = sample.get("id") or sample.get("sample_id") or "unknown"
     reference = sample.get("reference") or sample.get("answer") or sample.get("expected")
 
-    if "messages" in sample and sample["messages"]:
+    if sample.get("messages"):
         messages = sample["messages"]
         if messages[-1].get("role") == "assistant":
             reference = reference or messages[-1].get("content")
             messages = messages[:-1]
-    elif "instruction" in sample:
+    elif sample.get("instruction") is not None:
         user_prompt = sample["instruction"]
-        if sample.get("input"):
-            user_prompt = f"{user_prompt}\n\n{sample['input']}"
+        input_text = sample.get("input")
+        if input_text:
+            user_prompt = f"{user_prompt}\n\n{input_text}"
         messages = [{"role": "user", "content": user_prompt}]
         reference = reference or sample.get("output")
-    elif "prompt" in sample:
+    elif sample.get("prompt") is not None:
         messages = [{"role": "user", "content": sample["prompt"]}]
         reference = reference or sample.get("response")
     else:
@@ -296,12 +298,14 @@ def load_qwen_dpo_datasets(
         data_files["validation"] = str(val_path)
 
     raw_datasets = load_dataset("json", data_files=data_files)
-    if "validation" not in raw_datasets:
+    if "validation" not in raw_datasets and data_config.validation_split_ratio > 0:
         split = raw_datasets["train"].train_test_split(
             test_size=data_config.validation_split_ratio,
             seed=42,
         )
         raw_datasets = DatasetDict({"train": split["train"], "validation": split["test"]})
+    elif "validation" not in raw_datasets:
+        raw_datasets = DatasetDict({"train": raw_datasets["train"]})
 
     remove_columns = raw_datasets["train"].column_names
     normalized = raw_datasets.map(

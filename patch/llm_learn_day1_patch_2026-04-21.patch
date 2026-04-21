@@ -1,0 +1,170 @@
+diff --git a/configs/qwen_eval_day1_smoke.json b/configs/qwen_eval_day1_smoke.json
+new file mode 100644
+index 0000000..21895b0
+--- /dev/null
++++ b/configs/qwen_eval_day1_smoke.json
+@@ -0,0 +1,16 @@
++{
++  "model_name_or_path": "Qwen/Qwen2.5-1.5B-Instruct",
++  "adapter_path": "./qwen_checkpoints/day1_qwen2_5_1_5b_sft_smoke",
++  "eval_file": "./data/qwen/examples/day1_eval.jsonl",
++  "output_dir": "./qwen_eval_outputs/day1_qwen2_5_1_5b_smoke",
++  "max_length": 1024,
++  "max_new_tokens": 128,
++  "temperature": 0.0,
++  "top_p": 1.0,
++  "do_sample": false,
++  "batch_size": 1,
++  "load_in_4bit": false,
++  "trust_remote_code": true,
++  "system_prompt": "You are a helpful assistant.",
++  "save_predictions_name": "predictions.jsonl"
++}
+diff --git a/configs/qwen_sft_day1_smoke.json b/configs/qwen_sft_day1_smoke.json
+new file mode 100644
+index 0000000..13ba4d9
+--- /dev/null
++++ b/configs/qwen_sft_day1_smoke.json
+@@ -0,0 +1,50 @@
++{
++  "model": {
++    "model_name_or_path": "Qwen/Qwen2.5-1.5B-Instruct",
++    "trust_remote_code": true,
++    "use_lora": true,
++    "load_in_4bit": false,
++    "lora_r": 16,
++    "lora_alpha": 32,
++    "lora_dropout": 0.05,
++    "target_modules": [
++      "q_proj",
++      "k_proj",
++      "v_proj",
++      "o_proj",
++      "gate_proj",
++      "up_proj",
++      "down_proj"
++    ]
++  },
++  "data": {
++    "train_file": "./data/qwen/examples/day1_train.jsonl",
++    "validation_file": "./data/qwen/examples/day1_val.jsonl",
++    "validation_split_ratio": 0.2,
++    "max_length": 1024,
++    "preprocessing_num_workers": 1,
++    "system_prompt": "You are a helpful assistant.",
++    "train_on_prompt": false
++  },
++  "train": {
++    "output_dir": "./qwen_checkpoints/day1_qwen2_5_1_5b_sft_smoke",
++    "num_train_epochs": 1,
++    "learning_rate": 0.0002,
++    "weight_decay": 0.0,
++    "warmup_ratio": 0.03,
++    "per_device_train_batch_size": 1,
++    "per_device_eval_batch_size": 1,
++    "gradient_accumulation_steps": 1,
++    "logging_steps": 1,
++    "save_steps": 2,
++    "eval_steps": 2,
++    "save_total_limit": 1,
++    "bf16": true,
++    "fp16": false,
++    "gradient_checkpointing": true,
++    "seed": 42,
++    "report_to": [
++      "tensorboard"
++    ]
++  }
++}
+diff --git a/data/qwen/examples/day1_eval.jsonl b/data/qwen/examples/day1_eval.jsonl
+new file mode 100644
+index 0000000..4adbb1d
+--- /dev/null
++++ b/data/qwen/examples/day1_eval.jsonl
+@@ -0,0 +1,3 @@
++{"id": "day1-eval-1", "prompt": "什么是 LoRA？", "reference": "LoRA 是一种参数高效微调方法，通过低秩适配减少需要训练的参数数量。"}
++{"id": "day1-eval-2", "instruction": "为什么要先做 smoke test？", "reference": "因为 smoke test 能先验证训练链路、数据格式和显存配置是否正确。"}
++{"id": "day1-eval-3", "prompt": "SFT 和 DPO 的关系是什么？", "reference": "通常先做 SFT 建立基线，再在此基础上做 DPO 偏好优化。"}
+diff --git a/data/qwen/examples/day1_train.jsonl b/data/qwen/examples/day1_train.jsonl
+new file mode 100644
+index 0000000..298e030
+--- /dev/null
++++ b/data/qwen/examples/day1_train.jsonl
+@@ -0,0 +1,6 @@
++{"prompt": "什么是 LoRA？", "response": "LoRA 是一种参数高效微调方法，它通过在部分线性层注入低秩矩阵来减少可训练参数。"}
++{"instruction": "简要解释什么是 SFT", "input": "", "output": "SFT 指监督微调，使用指令-回答数据继续训练模型，让模型更贴合目标任务。"}
++{"prompt": "为什么训练前要先做 smoke test？", "response": "因为 smoke test 可以先验证数据格式、训练入口、保存路径和显存占用是否正常，避免大训练直接失败。"}
++{"instruction": "给出一个 DPO 的直观解释", "input": "", "output": "DPO 使用偏好对样本，让模型更倾向生成被人类偏好的回答，而不需要单独训练奖励模型。"}
++{"prompt": "什么是 gradient accumulation？", "response": "梯度累积是在多个小 batch 上累计梯度后再更新参数，用较小显存模拟更大的有效 batch。"}
++{"instruction": "为什么要先做 1.5B 的基线实验", "input": "", "output": "因为 1.5B 模型训练和调试成本更低，适合先验证数据、配置、日志和评测链路。"}
+diff --git a/data/qwen/examples/day1_val.jsonl b/data/qwen/examples/day1_val.jsonl
+new file mode 100644
+index 0000000..182d20c
+--- /dev/null
++++ b/data/qwen/examples/day1_val.jsonl
+@@ -0,0 +1,2 @@
++{"prompt": "为什么要保留验证集？", "response": "验证集用于观察训练过程中的泛化表现，帮助判断过拟合和选择 checkpoint。"}
++{"instruction": "用一句话解释 QLoRA", "input": "", "output": "QLoRA 是在低比特量化模型上做 LoRA 微调，以进一步降低显存开销。"}
+diff --git a/docs/day01_qwen_smoke_runbook.md b/docs/day01_qwen_smoke_runbook.md
+new file mode 100644
+index 0000000..27c043e
+--- /dev/null
++++ b/docs/day01_qwen_smoke_runbook.md
+@@ -0,0 +1,32 @@
++# Day 1：Qwen SFT smoke run
++
++## 目标
++第一天不追求指标，而是追求把 **数据 -> 配置 -> 训练 -> checkpoint -> 评测** 这一条最小链路跑通。
++
++## 新增内容
++- `configs/qwen_sft_day1_smoke.json`
++- `configs/qwen_eval_day1_smoke.json`
++- `data/qwen/examples/day1_train.jsonl`
++- `data/qwen/examples/day1_val.jsonl`
++- `data/qwen/examples/day1_eval.jsonl`
++- `make qwen-day1-train`
++- `make qwen-day1-eval`
++
++## 推荐执行顺序
++```bash
++make qwen-day1-train
++make qwen-day1-eval
++```
++
++## 成功标准
++1. SFT 能正常启动并输出日志。
++2. `./qwen_checkpoints/day1_qwen2_5_1_5b_sft_smoke` 下能看到保存结果。
++3. Eval 能正常读取 adapter 并生成预测文件。
++4. 你能确认一轮最小链路没有路径错误、数据错误、格式错误。
++
++## 第一天重点记录
++- 显存占用
++- 单 step 耗时
++- 是否出现 tokenizer / chat template / pad token 报错
++- checkpoint 是否正常保存
++- 评测输出是否可读
+diff --git a/makefile b/makefile
+index ec3e838..bb33e0e 100644
+--- a/makefile
++++ b/makefile
+@@ -8,6 +8,8 @@ TOKENIZER_PATH ?= gpt2
+ QWEN_SFT_CONFIG ?= ./configs/qwen_sft_1_5b.json
+ QWEN_EVAL_CONFIG ?= ./configs/qwen_eval_1_5b.json
+ QWEN_DPO_CONFIG ?= ./configs/qwen_dpo_1_5b.json
++QWEN_DAY1_SFT_CONFIG ?= ./configs/qwen_sft_day1_smoke.json
++QWEN_DAY1_EVAL_CONFIG ?= ./configs/qwen_eval_day1_smoke.json
+ 
+ .PHONY: install
+ install:
+@@ -37,3 +39,11 @@ qwen-sft-eval:
+ .PHONY: qwen-dpo-train
+ qwen-dpo-train:
+ 	uv run qwen-sft dpo-train --config-path $(QWEN_DPO_CONFIG)
++
++.PHONY: qwen-day1-train
++qwen-day1-train:
++	uv run qwen-sft train --config-path $(QWEN_DAY1_SFT_CONFIG)
++
++.PHONY: qwen-day1-eval
++qwen-day1-eval:
++	uv run qwen-sft evaluate --config-path $(QWEN_DAY1_EVAL_CONFIG)

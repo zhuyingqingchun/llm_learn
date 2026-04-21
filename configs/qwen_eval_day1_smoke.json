@@ -1,0 +1,16 @@
+{
+  "model_name_or_path": "Qwen/Qwen2.5-1.5B-Instruct",
+  "adapter_path": "./qwen_checkpoints/day1_qwen2_5_1_5b_sft_smoke",
+  "eval_file": "./data/qwen/examples/day1_eval.jsonl",
+  "output_dir": "./qwen_eval_outputs/day1_qwen2_5_1_5b_smoke",
+  "max_length": 1024,
+  "max_new_tokens": 128,
+  "temperature": 0.0,
+  "top_p": 1.0,
+  "do_sample": false,
+  "batch_size": 1,
+  "load_in_4bit": false,
+  "trust_remote_code": true,
+  "system_prompt": "You are a helpful assistant.",
+  "save_predictions_name": "predictions.jsonl"
+}

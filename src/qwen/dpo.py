@@ -95,8 +95,7 @@ def run_qwen_dpo_training(config: QwenDPOConfig) -> dict:
         logging_strategy="steps",
         eval_strategy="steps" if has_eval else "no",
         remove_unused_columns=False,
-        max_prompt_length=config.data.max_prompt_length,
-        max_completion_length=config.data.max_completion_length,
+        max_length=config.data.max_prompt_length + config.data.max_completion_length,
         dataset_num_proc=config.data.preprocessing_num_workers,
     )
 
